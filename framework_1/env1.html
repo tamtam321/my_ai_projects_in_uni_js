@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html dir="ltr" lang="hu-HU">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.0/jquery.min.js"></script>
+<script type="text/javascript" src="https://d3js.org/d3.v3.min.js"></script>
+<script type="text/javascript" src="playerCodes1.js"></script>
+
+<style>
+div.manualplay-controlpanel{
+	width: 100px;
+	height: 100px;
+}
+div.buttonrow{
+	width: 100%;
+	height: 33px;
+	position: relative;
+}
+div.directionarrow{
+	width: 33px;
+	height: 33px;
+}
+
+div.mode-select, div.playerpanel-manualplay, div.playerpanel-codeplay, div.manualplay-controlpanel, div.statuspanel{
+	display: none;
+}
+
+#playercode{
+	width: 600px;
+	height: 300px;
+}
+
+.trackicon{
+	margin: 5px;
+}
+
+#statustext{
+	width: 600px;
+	height: 300px;
+}
+
+.add-stored-player-button {
+    margin: 5px 5px 10px 0;
+}
+</style>
+<body>
+<div id="track-wrap" style="width: 800px; height: 500px;">
+<svg id="trackwrp" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+	<g id="track"></g>
+	<g id="playerlines"></g>
+	<g id="playercrosses"></g>
+	<g id="playerpoints"></g>
+	<g id="playernextmoves"></g>
+</svg>
+</div>
+<div class="level-select">
+	Choose a track by clicking!<br>
+</div>
+<div class="mode-select">
+	<button type="button" id="select-manualplay">Manual play</button>
+	<button type="button" id="select-codeplay">Code play</button>
+</div>
+<div class="playerpanel-manualplay">
+	Add new player <br />
+	<input type="text" id="newplayername-manualplay" placeholder="Name" /><button type="button" id="addnewPlayer-manualplay">Add</button><br />
+	<button type="button" id="start-manualplay">Start!</button>
+</div>
+<div class="playerpanel-codeplay">
+	Add stored player <br />
+	<div id="stored-player-button-pane"></div>
+	<button type="button" id="start-codeplay">Start!</button><br />
+	Add new player by its code <br />
+	<input type="text" id="newplayername-codeplay" placeholder="Name" /><button type="button" id="addnewPlayer-codeplay">Add</button><br />
+	<textarea id="playercode" placeholder="Code"></textarea>
+</div>
+<div class="manualplay-controlpanel">
+	<div class="buttonrow">
+		<button type="button" class="directionarrow" id="upleft">.</button>
+		<button type="button" class="directionarrow" id="up">.</button>
+		<button type="button" class="directionarrow" id="upright">.</button>
+	</div>
+	<div class="buttonrow">
+		<button type="button" class="directionarrow" id="middleleft">.</button>
+		<button type="button" class="directionarrow" id="middle">.</button>
+		<button type="button" class="directionarrow" id="middleright">.</button>
+	</div>
+	<div class="buttonrow">
+		<button type="button" class="directionarrow" id="downleft">.</button>
+		<button type="button" class="directionarrow" id="down">.</button>
+		<button type="button" class="directionarrow" id="downright">.</button>
+	</div>
+</div>
+<div class="statuspanel">
+	<textarea id="statustext"> </textarea>
+</div>
+<script async type="text/javascript">
+var tr_x = 800;
+var tr_y = 500;
+var playFc;
+
+var tdraw = function(){
+	var au=10;
+	var players = [];
+	var fixtr = undefined;
+	var c = [];
+	var pcolors=['#822A8A','#A8A228','#00FF00','#C9FF00','#6688CC','#88CC66'];
+	var duration = +1000;
+	
+	var drawPlayer=function(aplayer){
+		var ppoint = d3.select("#playerpoints")
+				.append("circle")
+				.attr("cx", aplayer.ppos.y*au)
+				.attr("cy", aplayer.ppos.x*au)
+				.attr("r", 5)
+				.style("fill", 'white')
+				.style("stroke", aplayer.color)
+				.style("stroke-width", '3');
+		return ppoint;
+	}
+	
+	var drawLine=function(aplayer){
+		var pline = d3.select("#playerlines")
+				.append("line")
+				.attr("x1", aplayer.ppos.y*au)
+				.attr("y1", aplayer.ppos.x*au)
+				.attr("x2", aplayer.ppos.y*au)
+				.attr("y2", aplayer.ppos.x*au)
+				.style("fill", 'transparent')
+				.style("stroke", aplayer.color)
+				.style("stroke-width", '3');
+		return pline;
+	}
+	
+	var drawCross=function(aplayer){
+		var pcross = d3.select("#playercrosses")
+				.append("g");
+		pcross.append("line")
+				.attr("x1", aplayer.ppos.y*au-au/4)
+				.attr("y1", aplayer.ppos.x*au-au/4)
+				.attr("x2", aplayer.ppos.y*au+au/4)
+				.attr("y2", aplayer.ppos.x*au+au/4)
+				.style("fill", 'transparent')
+				.style("stroke", aplayer.color)
+				.style("stroke-width", '2');
+		pcross.append("line")
+				.attr("x1", aplayer.ppos.y*au+au/4)
+				.attr("y1", aplayer.ppos.x*au-au/4)
+				.attr("x2", aplayer.ppos.y*au-au/4)
+				.attr("y2", aplayer.ppos.x*au+au/4)
+				.style("fill", 'transparent')
+				.style("stroke", aplayer.color)
+				.style("stroke-width", '2');
+		return pcross;
+	}
+	
+	var drawNextMoves=function(aplayer){
+		var pnm = d3.select("#playernextmoves")
+				.append("g")
+				.attr("transform", "translate("+(aplayer.ppos.y)*au+", "+(aplayer.ppos.x)*au+")");
+		for(var i=-1; i<=1; i++)
+			for(var j=-1; j<=1; j++){
+				pnm.append("circle")
+						.attr("cx", (+i)*au)
+						.attr("cy", (+j)*au)
+						.attr("r", 4)
+						.style("fill", aplayer.color)
+						.style("opacity", '0.4')
+						.style("stroke", 'transparent')
+						.style("stroke-width", '0');
+			}
+		return pnm;
+	}
+	
+	this.addPlayer = function(name, pos){
+		var player = {name: name, ppos: pos, ppoint: undefined, lines:[], crosses:[], nextMoveSigns:[], color: pcolors[players.length]}
+		player.ppoint = drawPlayer(player);
+		player.nextMoveSigns = drawNextMoves(player);
+		players.push(player);
+	}
+
+	this.hightlightedPlayerIdx = -1;
+
+	this.highlightPlayer = function(playerIdx) {
+		this.deHighlightPlayer();
+		this.hightlightedPlayerIdx = playerIdx;
+		players[playerIdx].ppoint
+			.attr("r", 7)
+	}
+
+	this.deHighlightPlayer = function() {
+		if (this.hightlightedPlayerIdx < 0) {
+			return;
+		}
+		players[this.hightlightedPlayerIdx].ppoint
+			.attr("r", 5);
+		this.hightlightedPlayerIdx = -1;
+	}
+	
+	this.movePlayer = function(playerIdx, dest, validMovement){
+		var player = players[playerIdx];
+		player.crosses.push(drawCross(player));
+		player.ppoint.transition().duration(duration)
+			.attr("cx", dest.y*au)
+			.attr("cy", dest.x*au);
+		if(validMovement){
+			nextpos={y: dest.y+(dest.y-player.ppos.y), x: dest.x+(dest.x-player.ppos.x)};
+			player.nextMoveSigns.transition().duration(duration)
+				.attr("transform", "translate("+(nextpos.y)*au+", "+(nextpos.x)*au+")");
+			var newLine=drawLine(player);
+			newLine.transition().duration(duration)
+					.attr("x2", dest.y*au)
+					.attr("y2", dest.x*au);
+			player.lines.push(newLine);
+			player.ppos=dest;
+		}
+		else{
+			var newLine=drawLine(player);
+			newLine.transition().duration(duration)
+					.attr("x2", dest.y*au)
+					.attr("y2", dest.x*au)
+					.style("opacity","0.3");
+			player.nextMoveSigns.transition().duration(duration)
+				.style("opacity",0);
+			}
+	}
+	
+	this.restorePlayer = function(playerIdx){
+		var player = players[playerIdx];
+		player.ppoint.transition().duration(duration)
+			.attr("cx", player.ppos.y*au)
+			.attr("cy", player.ppos.x*au);
+		if(player.crosses.length){
+			player.crosses.pop().transition().duration(duration)
+				.style("opacity","0.3");
+		}
+		else{
+			console.log("Tried to remove non existing cross");
+		}
+		player.nextMoveSigns.transition().duration(duration)
+			.attr("transform", "translate("+(player.ppos.y)*au+", "+(player.ppos.x)*au+")")
+			.style("opacity",1);
+	}
+	
+	this.drawTrackBg = function(rtc){
+		c = rtc;
+		var lx = c.length;
+		var ly = c[0].length;
+		au = Math.floor(Math.min(tr_x/ly,tr_y/lx));
+		for(var i = 1; i < lx; i++)
+			for(var j = 1; j < ly; j++){
+				if(c[i][j]<0 && c[i-1][j]<0 && c[i][j-1]<0 && c[i-1][j-1]<0){
+					d3.select("#track")
+						.append("rect")
+						.attr("x", (j-1)*au)
+						.attr("y", (i-1)*au)
+						.attr("width", au)
+						.attr("height", au)
+						.style("fill", 'red')
+						.style("stroke", 'gray')
+						.style("stroke-width", '2');
+				}
+				else{
+					d3.select("#track")
+						.append("rect")
+						.attr("x", (j-1)*au)
+						.attr("y", (i-1)*au)
+						.attr("width", au)
+						.attr("height", au)
+						.style("fill", 'lightgreen')
+						.style("stroke", 'gray')
+						.style("stroke-width", '2');
+				}
+			}
+		for (var i = 0; i < lx; i++)
+			for(var j = 0; j < ly; j++){
+				if(i > 0 && c[i][j] < 0 && c[i-1][j] < 0){
+					d3.select("#track")
+						.append("line")
+						.attr("x1", j*au)
+						.attr("y1", i*au)
+						.attr("x2", j*au)
+						.attr("y2", (i-1)*au)
+						.style("stroke", 'darkred')
+						.style("stroke-width", '3');
+				}
+				if(j > 0 && c[i][j] < 0 && c[i][j-1] < 0){
+					d3.select("#track")
+						.append("line")
+						.attr("x1", j*au)
+						.attr("y1", i*au)
+						.attr("x2", (j-1)*au)
+						.attr("y2", i*au)
+						.style("stroke", 'darkred')
+						.style("stroke-width", '3');
+				}
+			}
+		for(var i=0; i<lx; i++)
+			for(var j=0; j<ly; j++)
+				if(c[i][j]==100){
+					d3.select("#track")
+						.append("rect")
+						.attr("x", (j-0.5)*au)
+						.attr("y", (i-0.5)*au)
+						.attr("width", au)
+						.attr("height", au)
+						.style("fill", ((i+j)%2?'black':'white'))
+						.style("stroke", 'gray')
+						.style("stroke-width", '2');
+				}
+		
+	}
+}
+
+var lineCar = function(){
+	var track = {map: undefined, start: [], end: [], laps: 1};
+	var players = [];
+	var trackd = new tdraw();
+	var delay = +1000;
+	var actPlayer = 0;
+	
+	this.addPlayer = function(name, code){
+		if(players.length == track.start.length) {
+			console.log("All "+ track.start.length +" positions are already occupied.");
+			return false;
+		}
+
+		var startPos;
+		do
+			startPos = track.start[Math.floor(Math.random()*track.start.length)];
+		while(occs(startPos) >= 0)
+		try{
+			var newPlayer = {name: name, penalty: 0, oldpos: startPos, pos: startPos, stepno: 0, finished: false, nMisbehav: 0, code: code};
+			players.push(newPlayer);
+			trackd.addPlayer(name, newPlayer.pos);
+		}
+		catch{
+			if(code === undefined)
+				alert("Agent code is missing.");
+			else
+				alert("Agent initialization error.");
+			return false;
+		}
+		console.log("Player " + name + " added at position (" + startPos.x + "," + startPos.y + ")");
+		return true;
+	}
+	
+	var move = function(playerIdx,dx,dy){
+		var player = players[playerIdx];
+		if((dx!=0 && Math.abs(dx)!=1) || (dy!=0 && Math.abs(dy)!=1)){
+			if(++player.nMisbehav < 5) {
+				updateStatus(player.name + " banned for 5 rounds because of invalid direction values.");
+				player.penalty = 5;
+				player.oldpos = player.pos;
+			} else {
+				updateStatus(player.name + " disqualified for providing 5 invalid direction values.");
+				player.finished = true;
+			}
+			return false;
+		}
+		else{
+			var newpos = {
+				x: dx + player.pos.x + (player.pos.x - player.oldpos.x), 
+				y: dy + player.pos.y + (player.pos.y - player.oldpos.y)
+				};
+			player.oldpos = player.pos;
+			if(vl(player.pos, newpos)){
+				if(occs(newpos)<0 || occs(newpos)==playerIdx){
+					player.pos = newpos;
+					trackd.movePlayer(playerIdx, newpos, true);
+					return true;
+				}
+				else{
+					updateStatus(player.name + " banned from 5 rounds because of a collision.");
+					player.penalty = 5;
+					trackd.movePlayer(playerIdx, newpos, false);
+					return false;
+				}
+			}
+			else{
+				updateStatus(player.name + " banned from 5 rounds because it left the track.");
+				player.penalty = 5;
+				trackd.movePlayer(playerIdx, newpos, false);
+				return false;
+			}
+		}
+	}
+	
+	var restartMovement = function(playerIdx){
+		trackd.restorePlayer(playerIdx);
+	}
+	
+	var generatePlayerData = function(){
+		var ret = [];
+		for (var i = 0; i < players.length; i++)
+			ret.push({oldpos: players[i].oldpos, pos: players[i].pos, penalty: players[i].penalty});
+		return ret;
+	}
+
+	var getPlayerMovementWithTimeLimit = async function() {
+		return new Promise((mResolve, mReject) => {
+			let generatedPlayerData = generatePlayerData();
+			let actTrack = JSON.parse(JSON.stringify(track.map));
+			Promise.race([
+				new Promise(function(resolve, reject) {
+					setTimeout(resolve, 1010, {
+						timedOut: true,
+						movement: {
+							x: 0,
+							y: 0
+						}
+					});
+				}),
+				new Promise(function(resolve, reject) {
+					var modDirect = players[actPlayer].code.moveFunction(actTrack, generatedPlayerData, actPlayer);
+					resolve({
+						timedOut: false,
+						movement: modDirect
+					})
+				})
+			]).then((result) => {
+				if (result.timedOut) {
+					updateStatus(players[actPlayer].name + " did not respond in time, moves forward.");
+				}
+				mResolve(result.movement);
+			});
+		});
+	}
+	
+	var codestep = async function() {
+		var player = players[actPlayer];
+		// var modDirect = player.code.moveFunction(JSON.parse(JSON.stringify(track.map)), generatePlayerData(), actPlayer);
+
+		player.stepno++;
+		try{
+			var modDirect = await getPlayerMovementWithTimeLimit();
+		}
+		catch(err){
+			player.finished = true;
+			updateStatus("Player " + player.name + " crashed while making step " + player.stepno + ".\n Error message: " + err);
+		}
+
+		try {
+			move(actPlayer, modDirect.x, modDirect.y);
+		}
+		catch(err) {
+			updateStatus("Player " + player.name + " provided invalid direction vector while making step " + player.stepno + ".\n Error message: " + err);
+			move(actPlayer, -10, -10);
+		}
+		if(track.map[player.pos.x][player.pos.y] == 100){
+			player.finished = true;
+			updateStatus(player.name + " reached the goal in " + player.stepno + " steps!");
+		}
+
+		if(!everybodyFinished()){
+			nextPlayer();
+			playFc = setTimeout(codestep, 1200);
+		}
+		else{
+			updateStatus("Race is over.");
+		}
+	}
+	
+	this.startCodePlay = function(){
+		var pd = generatePlayerData();
+		for(var i = 0; i < players.length; i++)
+			players[i].code.init(track.map, pd, i);
+		actPlayer = 0;
+		updateStatus("The first player is " + players[0].name + ".");
+		trackd.highlightPlayer(actPlayer);
+		codestep();
+	}
+	
+	this.startManualPlay = function(){
+		actPlayer = 0;
+		trackd.highlightPlayer(actPlayer);
+		manualPlay();
+	}
+	
+	var updateStatus = function(msg){
+		$('#statustext').val(msg + "\n" + $('#statustext').val());
+	}
+	
+	var everybodyFinished = function(){
+		for(var i=0; i<players.length; i++){
+			if(!players[i].finished)
+				return false;
+		}
+		return true;
+	}
+	
+	var nextPlayer = function(){
+		if (++actPlayer >= players.length) {
+			actPlayer = 0;
+		}
+
+		if (players[actPlayer].penalty>0) {
+			players[actPlayer].stepno++;
+			if(--(players[actPlayer].penalty) == 0){
+				updateStatus(players[actPlayer].name+"'s ban ends now, it can continue in the next round.");
+				restartMovement(actPlayer);
+			}
+			else{
+				updateStatus(players[actPlayer].name + " is banned for " + players[actPlayer].penalty + " steps.");
+			}
+			return nextPlayer();
+		}
+		if (players[actPlayer].finished) {
+			return nextPlayer();
+		}
+		updateStatus("Player " + players[actPlayer].name + " is to move (step #" + players[actPlayer].stepno + ").");
+		setTimeout(() => trackd.highlightPlayer(actPlayer), delay);
+	}
+	
+	var manualStep = function(playerIdx, dx, dy){
+		move(playerIdx, dx, dy);
+		var player = players[playerIdx];
+		if(track.map[player.pos.x][player.pos.y] == 100){
+			player.stepno++;
+			player.finished = true;
+			updateStatus(player.name + " reached the goal in " + player.stepno + " steps.");
+		}
+		else
+			player.stepno++;
+		if (!everybodyFinished())
+			nextPlayer();
+		else {
+			updateStatus("Race is over.");
+			$('#upleft').unbind('click');
+			$('#up').unbind('click');
+			$('#upright').unbind('click');
+			$('#middleleft').unbind('click');
+			$('#middle').unbind('click');
+			$('#middleright').unbind('click');
+			$('#downleft').unbind('click');
+			$('#down').unbind('click');
+			$('#downright').unbind('click');
+		}
+	}
+	
+	var manualPlay = function() {
+		updateStatus("The first player is "+players[0].name+".");
+		$('#upleft').click(function(){
+			manualStep(actPlayer,-1,-1);
+		});
+		$('#up').click(function(){
+			manualStep(actPlayer,-1,0);
+		});
+		$('#upright').click(function(){
+			manualStep(actPlayer,-1,1);
+		});
+		$('#middleleft').click(function(){
+			manualStep(actPlayer,0,-1);
+		});
+		$('#middle').click(function(){
+			manualStep(actPlayer,0,0);
+		});
+		$('#middleright').click(function(){
+			manualStep(actPlayer,0,1);
+		});
+		$('#downleft').click(function(){
+			manualStep(actPlayer,1,-1);
+		});
+		$('#down').click(function(){
+			manualStep(actPlayer,1,0);
+		});
+		$('#downright').click(function(){
+			manualStep(actPlayer,1,1);
+		});
+	}
+	
+	var consolelogTrack = function(){
+		console.log(track);
+	}
+	
+	var importTrack = function(imagename){
+		var imwith, imheight;
+		var img = $('<img />', {src: imagename })
+				.load(function (){
+					imwith=this.width;
+					imheight=this.height;
+					var imc=$('<canvas/>');
+					imc.width=imwith; img.height=imheight;
+					imc[0].getContext('2d').drawImage(this, 0, 0, imwith, imheight);
+					track.map =[];
+					for (var j=0; j<imheight; j++){
+						track.map.push([]);
+						for (var i=0; i<imwith; i++){
+							var px = imc[0].getContext('2d').getImageData(i,j,1,1).data;
+							switch(px.join(',')){
+								case '255,0,0,255':
+									track.map[j].push(-1);
+									break;
+								case '255,255,255,255':
+									track.map[j].push(0);
+									break;
+								case '0,255,0,255':
+									track.map[j].push(1);
+									track.start.push({x: j, y: i});
+									break;
+								case '0,0,255,255':
+									track.map[j].push(100);
+									track.end.push({x: j, y: i});
+									break;
+								default:
+									track.map[j].push(-1);
+									break;
+							}
+						}
+					}
+					trackd.drawTrackBg(track.map);
+				});
+
+
+	}
+	
+	var minimalTrack = function(){
+		track.map=[[-1, -1, -1, -1, -1, -1, -1, -1],
+					[-1, 1, 0, 0, 2, -1, -1, -1],
+					[-1, 1, -1, 0, 2, -1, -1, -1],
+					[-1, 1, -1, 0, 2, 0, 100, -1],
+					[-1, -1, -1, -1, -1, -1, -1 -1]];
+		track.start=[{x: 1, y: 1},{x: 2, y: 1},{x: 3, y: 1}];
+		track.end=[{x: 3, y: 6}];
+		track.laps=1;
+		trackd.drawTrackBg(track.map);
+	}
+	
+	this.loadLevel = function(ln){
+		importTrack(levels[ln].imname);
+	}
+	
+	var vl=function(p1,p2){ //valid line
+		var dx=p2.x-p1.x;
+		var dy=p2.y-p1.y;
+		if(Math.abs(dx)>0){
+			var d=dy/dx;
+			for(var i=0; i<=Math.abs(dx); i++){
+				var tx=p1.x+i*Math.sign(dx);
+				var tyf=Math.floor(p1.y+i*d*Math.sign(dx));
+				var tyc=Math.ceil(p1.y+i*d*Math.sign(dx));
+				try{
+					if(track.map[tx][tyf]<0 && track.map[tx][tyc]<0){
+						return false;
+					}
+				} catch(err) {
+					console.log("valid line error. tx = " + tx + ", tyf = " + tyf+ ", p1.x = " + p1.x+ ", p1.y = " + p1.y);
+					return false;
+				}
+			}
+		}
+		if(Math.abs(dy)>0){
+			var d=dx/dy;
+			for(var i=0; i<=Math.abs(dy); i++){
+				var ty=p1.y+i*Math.sign(dy);
+				var txf=Math.floor(p1.x+i*d*Math.sign(dy));
+				var txc=Math.ceil(p1.x+i*d*Math.sign(dy));
+				if(track.map[txf][ty]<0 && track.map[txc][ty]<0){
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	
+	var ep = function(p1,p2){
+		return(p1.x==p2.x && p1.y==p2.y)
+	}
+	
+	var occs = function(pos){
+		for(var i=0; i<players.length; i++){
+			if(players[i].pos.x==pos.x && players[i].pos.y==pos.y)
+				return i;
+		}
+		return -1;
+	}
+	
+	this.equalPoints = function(p1,p2){
+		return ep(p1,p2);
+	}
+	
+	this.validLine = function(p1, p2){
+		return vl(p1, p2);
+	}
+	
+	this.playerAt = function(p1){
+		return occs(p1);
+	}
+}
+
+var levels = {
+		small1: {
+			imname: 'small1.png'
+		},
+		small2: {
+
+			imname: 'small2.png'
+		},
+		large1: {
+			imname: 'large1.png'
+		},
+		large2: {
+			imname: 'large2.png'
+		},
+		straight: { 
+			imname: 'straight.png'
+		}
+	};
+
+var levelSelection = function(){
+	for(lvl in levels){
+		var actImg=$("<img>",{src: levels[lvl].imname, class: "trackicon", "data-lvl": lvl}).appendTo($('.level-select'));
+		actImg.click(function(){
+			lc.loadLevel($(this).attr("data-lvl"));
+			console.log("loading level " + $(this).attr("data-lvl"));
+			$('.level-select').hide("slow");
+			$('.mode-select').show("slow");
+		});
+	}
+}
+
+// var this is an example, a random  = function(){
+var randomAgent = function() {
+	var ownData = undefined;
+	
+	this.init = function(map, playerData, selfIdx){
+		console.log('Hello world!');
+		// here an initialization might take place;
+	}
+	
+	this.moveFunction = function(map, playerData, selfIdx){
+		var self = playerData[selfIdx]; // read the info for the actual player
+		var newCenter = { // this is how the center of the next movement can be computed
+			x: self.pos.x+(self.pos.x-self.oldpos.x),
+			y: self.pos.y+(self.pos.y-self.oldpos.y)
+		};
+		var nextMove = newCenter;
+		// the variable nextMove is initialized as the center point
+		// if it is valid, we stay there with a high probability
+		if (!lc.equalPoints(newCenter,self.pos) && lc.validLine(self.pos, newCenter) && lc.playerAt(newCenter) < 0 && Math.random() > 0.1)
+			return {x: 0, y: 0}; // with returning 0,0, the next movement will be the center
+		else { // the center point is not valid or we want to change with a small probability
+			var validMoves = [];
+			var validStay = null;
+			// we try the possible movements
+			for(var i=-1; i<=1; i++)
+				for(var j=-1; j<=1; j++){
+					nextMove = {x: newCenter.x + i, y: newCenter.y + j};
+					// if the movement is valid (the whole line has to be valid)
+					if(lc.validLine(self.pos, nextMove) && (lc.playerAt(nextMove)<0 || lc.playerAt(nextMove)==selfIdx))
+						if(!lc.equalPoints(nextMove,self.pos)) // if there is no one else
+							validMoves.push({x: i, y: j}); // store movement as a valid movement
+						else
+							validStay={x: i, y: j}; // the next movement is me
+				}
+			if(validMoves.length) {
+				// if there is a valid movement, try to step there, if it is not equal to the actual position
+				return validMoves[Math.floor(Math.random()*validMoves.length)];
+			}
+			else{
+				// if the only one movement is equal to my actual position, we rather stay there
+				if(validStay){
+					return validStay;
+				}
+			}
+			return {x: 0, y: 0}; // if there is no valid movement, then close our eyes....
+		}
+	}
+}
+
+function loadCodes() {
+	for (storedPlayer in storedPlayerScripts) {
+		var addPlayerButton = $("<button class='add-stored-player-button' id=" + storedPlayer + ">" + storedPlayerScripts[storedPlayer].displayName + "</button>").click(function () {
+			lc.addPlayer(storedPlayerScripts[this.id].displayName, new storedPlayerScripts[this.id].playerClass);
+		})
+		$("#stored-player-button-pane").append(addPlayerButton);
+	}
+}
+
+$(function(){
+	loadCodes();
+
+	lc = new lineCar();
+	levelSelection();
+	
+	$('#select-manualplay').click(function(){
+		$('.playerpanel-manualplay').show("slow");
+		$('.mode-select').hide("slow");
+	});
+	
+	$('#select-codeplay').click(function(){
+		$('.playerpanel-codeplay').show("slow");
+		$('.mode-select').hide("slow");
+	});	
+	
+	$('#addnewPlayer-manualplay').click(function(){
+		if($('#newplayername-manualplay').val()!=""){
+			lc.addPlayer($('#newplayername-manualplay').val(), null);
+			$('#newplayername-manualplay').val("");
+		}
+	});
+	
+	$('#start-manualplay').click(function(){
+		$('.manualplay-controlpanel').show("slow");
+		$('.statuspanel').show("slow");
+		$('.playerpanel-manualplay').hide("slow");
+		lc.startManualPlay();
+	});
+
+	$('#select-codeplay').click(function(){
+		$('.playerpanel-codeplay').show("slow");
+		$('.mode-select').hide("slow");
+	});	
+	
+	$('#addnewPlayer-codeplay').click(function(){
+		if($('#newplayername-codeplay').val()!="" && $('#playercode').val()!=""){
+			var actFun=eval("(function(){"+$('#playercode').val()+"})");
+			if(actFun != null){
+				try{
+					var result = lc.addPlayer($('#newplayername-codeplay').val(), new actFun);
+					// if player succesfully added then clearing input fields
+					if(result){
+						$('#newplayername-codeplay').val("");
+						$('#playercode').val("");
+					}
+				}
+				catch(err){
+					alert("Agent code parse error.");
+				}
+			}
+			else{
+				alert("Agent code parse error.");
+			}
+		}
+		else{
+			alert("Missing data.");
+		}
+	});
+	
+	$('#start-codeplay').click(function(){
+		$('.statuspanel').show("slow");
+		$('.playerpanel-codeplay').hide("slow");
+		lc.startCodePlay();
+	});
+	
+});
+
+</script>
+</body>
+</html>
